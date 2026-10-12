@@ -359,7 +359,7 @@ def request_payload(payload):
     response.raise_for_status()
     
     data = response.json()
-    print(data)
+    #print(data)
 
     if not isinstance(data, dict):
         raise ValueError("O corpo não é um objeto JSON")

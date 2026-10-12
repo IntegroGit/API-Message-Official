@@ -10,7 +10,7 @@ CREATE TABLE messages (
     payload JSONB NOT NULL
 );
 
-CREATE TABLE message_media (
+CREATE TABLE message_audio (
     message_id TEXT PRIMARY KEY,
     media_id TEXT NOT NULL,
     mime_type TEXT NOT NULL,
@@ -39,6 +39,18 @@ CREATE TABLE message_interpretations (
     error_message TEXT,
     started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at TIMESTAMPTZ,
+    CONSTRAINT fk_message FOREIGN KEY (message_id)
+    REFERENCES messages(message_id)
+);
+
+CREATE TABLE message_images (
+    message_id TEXT PRIMARY KEY,
+    media_id TEXT NOT NULL, 
+    mime_type TEXT NOT NULL,
+    image_converted BYTEA NULL,
+    download_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(download_status IN ('pending', 'downloading', 'downloaded', 'error')),
+    download_started_at TIMESTAMPTZ,
     CONSTRAINT fk_message FOREIGN KEY (message_id)
     REFERENCES messages(message_id)
 );

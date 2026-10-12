@@ -5,7 +5,7 @@ Estrutura inicial; implementação pendente.
 import logging
 from faster_whisper import WhisperModel
 from app.interpret import run_interpretation_background
-from app.database import claim_transcription, get_media_file_path, mark_transcription_completed, mark_transcription_error
+from app.database import claim_transcription, get_audio_file_path, mark_transcription_completed, mark_transcription_error
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -29,7 +29,7 @@ def process_transcription(message_id):
     if claim_transcription(message_id) == False:
         return
 
-    file_path = get_media_file_path(message_id)
+    file_path = get_audio_file_path(message_id)
 
     if not file_path:
         logger.error("O áudio não tem caminho registrado")

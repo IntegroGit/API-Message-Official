@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from typing import Annotated
 from app.database import save_message, save_audio_message, save_image_message
 from app.interpret import run_interpretation_background
-from app.media import process_media_download
+from app.media import process_audio_download, process_image_download
 from datetime import timezone, datetime
 from fastapi.responses import PlainTextResponse
 from starlette.concurrency import run_in_threadpool
@@ -165,7 +165,7 @@ async def receive_webhook(request: Request, background_task: BackgroundTasks):
 
                     await run_in_threadpool(save_audio_message, message_id, sender, sent_at, media_id, mime_type, payload)
 
-                    background_task.add_task(process_media_download, message_id, media_id, mime_type)
+                    background_task.add_task(process_audio_download, message_id, media_id, mime_type)
 
                 elif message_type == "image":
                     image_data = message.get("image")
@@ -192,6 +192,6 @@ async def receive_webhook(request: Request, background_task: BackgroundTasks):
 
                     await run_in_threadpool(save_image_message, message_id, sender, sent_at, media_id, mime_type, caption, payload)
 
-                    background_task.add_task(process_media_download, message_id, media_id, mime_type)
+                    background_task.add_task(process_image_download, message_id, media_id, mime_type)
                 
     return PlainTextResponse("EVENT_RECEIVED", status_code=200)

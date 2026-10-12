@@ -37,7 +37,7 @@ def save_audio_message(message_id, sender, sent_at, media_id, mime_type, payload
     sql_message = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
                         VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
 
-    sql_media = """INSERT INTO message_media (message_id, media_id, mime_type)
+    sql_media = """INSERT INTO message_audio (message_id, media_id, mime_type)
                     VALUES (%s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
 
     with get_connection() as conn:
@@ -50,31 +50,28 @@ def save_image_message(message_id, sender, sent_at, media_id, mime_type, caption
     sql_messages = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
                         VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
 
-    sql_media = """INSERT INTO message_media (message_id, media_id, mime_type, transcription_status)
-                    VALUES (%s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+    sql_media = """INSERT INTO message_images (message_id, media_id, mime_type)
+                    VALUES (%s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
 
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(sql_messages, (message_id, sender, sent_at, 'image', caption, Jsonb(payload)))
-            cursor.execute(sql_media, (message_id, media_id, mime_type, 'not_applicable'))
+            cursor.execute(sql_media, (message_id, media_id, mime_type))
 
+def mark_image_downloaded(message_id, image_data):
 
-#If the audio is downloaded, this function will be executed
-def mark_media_downloaded(message_id, file_path):
-
-    sql = """UPDATE message_media
-            SET file_path = %s, download_status = 'downloaded'
+    sql = """UPDATE message_images 
+            SET image_converted = %s, download_status = 'downloaded'
             WHERE message_id = %s
             """
 
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql, (file_path, message_id))
+            cursor.execute(sql, (image_data, message_id))
 
-#If the download fails, `download_status` will change to 'error'.
-def mark_media_error(message_id):
+def mark_image_error(message_id):
 
-    sql = """UPDATE message_media
+    sql = """UPDATE message_images
             SET download_status = 'error'
             WHERE message_id = %s AND download_status <> 'downloaded'
             """
@@ -83,12 +80,53 @@ def mark_media_error(message_id):
         with conn.cursor() as cursor:
             cursor.execute(sql, (message_id,))
 
+#If the audio is downloaded, this function will be executed
+def mark_audio_downloaded(message_id, file_path):
 
-#Check the status of file. It could be: 'downloaded', 'pending' or 'error' 
-def get_media_download_status(message_id):
+    sql = """UPDATE message_audio
+            SET file_path = %s, download_status = 'downloaded'
+            WHERE message_id = %s 
+            """
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (file_path, message_id))
+
+#If the download fails, `download_status` will change to 'error'.
+def mark_audio_error(message_id):
+
+    sql = """UPDATE message_audio
+            SET download_status = 'error'
+            WHERE message_id = %s AND download_status <> 'downloaded'
+            """
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (message_id,))
+
+def get_image_download_status(message_id):
 
     sql = """SELECT download_status
-            FROM message_media
+            FROM message_images
+            WHERE message_id = %s
+            """
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (message_id,))
+            row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return row[0]
+    
+
+#Check the status of file. It could be: 'downloaded', 'pending' or 'error' 
+def get_audio_download_status(message_id):
+
+    sql = """SELECT download_status
+            FROM message_audio
             WHERE message_id = %s
             """
 
@@ -104,9 +142,9 @@ def get_media_download_status(message_id):
 
 #This function prevents a single message from being executed twice.
 #The download only starts after this function return True
-def claim_media_download(message_id):
+def claim_audio_download(message_id):
 
-    sql = """UPDATE message_media
+    sql = """UPDATE message_audio
             SET download_status = 'downloading', download_started_at = CURRENT_TIMESTAMP
             WHERE message_id = %s AND download_status IN ('pending', 'error')
             RETURNING message_id
@@ -123,7 +161,7 @@ def claim_media_download(message_id):
 #This function updates the database to record the audio transcribed into text.
 def mark_transcription_completed(message_id, text):
 
-    sql = """UPDATE message_media
+    sql = """UPDATE message_audio
             SET transcription_text = %s, transcription_status = 'completed'
             WHERE message_id = %s
             """
@@ -134,7 +172,7 @@ def mark_transcription_completed(message_id, text):
 
 def mark_transcription_error(message_id):
 
-    sql = """UPDATE message_media
+    sql = """UPDATE message_audio
             SET transcription_status = 'error'
             WHERE message_id = %s AND transcription_status <> 'completed'
             """
@@ -146,9 +184,24 @@ def mark_transcription_error(message_id):
 #This function prevents a single message from being executed twice.
 def claim_transcription(message_id):
 
-    sql = """UPDATE message_media
+    sql = """UPDATE message_audio
             SET transcription_status = 'processing', transcription_started_at = CURRENT_TIMESTAMP
-            WHERE message_id = %s AND transcription_status in ('pending', 'error') AND download_status = 'downloaded'
+            WHERE message_id = %s AND transcription_status IN ('pending', 'error') AND download_status = 'downloaded'
+            RETURNING message_id
+            """
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (message_id,))
+            row = cursor.fetchone()
+
+    return row is not None
+
+def claim_image_download(message_id):
+
+    sql = """UPDATE message_images
+            SET download_status = 'downloading', download_started_at = CURRENT_TIMESTAMP
+            WHERE message_id = %s AND download_status IN ('pending', 'error')
             RETURNING message_id
             """
 
@@ -160,10 +213,10 @@ def claim_transcription(message_id):
     return row is not None
 
 #This fuction return the file path 
-def get_media_file_path(message_id):
+def get_audio_file_path(message_id):
 
     sql = """SELECT file_path
-            FROM message_media
+            FROM message_audio
             WHERE message_id = %s
             """
 

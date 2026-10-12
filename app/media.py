@@ -6,8 +6,16 @@ import os, httpx, logging
 from uuid import uuid4
 from dotenv import load_dotenv
 from pathlib import Path
-from app.database import mark_media_downloaded, mark_media_error, get_media_download_status, claim_media_download
 from app.transcribe import process_transcription
+from app.database import (mark_audio_downloaded, 
+                          mark_audio_error, 
+                          get_audio_download_status, 
+                          claim_audio_download, 
+                          get_image_download_status, 
+                          claim_image_download, 
+                          mark_image_downloaded, 
+                          mark_image_error)
+
 
 load_dotenv()
 
@@ -47,7 +55,7 @@ def get_media_url(media_id):
     return download_url
 
 #This fuction download the audio
-def download_media(media_id, mime_type):
+def download_audio(media_id, mime_type):
     
     download_url = get_media_url(media_id)
 
@@ -60,15 +68,13 @@ def download_media(media_id, mime_type):
     extensions = {
         "audio/ogg":".ogg",
         "audio/mpeg":".mp3",
-        "audio/mp4":".m4a",
-        "image/jpeg":".jpg",
-        "image/png":".png"
+        "audio/mp4":".m4a"
     }
 
     extension = extensions.get(base_mime_type)
 
     if extension is None:
-        raise RuntimeError(f"Tipo de mídia não suportado: {base_mime_type}")
+        raise RuntimeError(f"Tipo de áudio não suportado: {base_mime_type}")
 
     #Generating a random identifier
     filename = f"{uuid4().hex}{extension}"
@@ -80,24 +86,70 @@ def download_media(media_id, mime_type):
     response.raise_for_status()
 
     if not response.content:
-        raise RuntimeError("O arquivo de mídia recebido está vazio")
+        raise RuntimeError("O arquivo de áudio recebido está vazio")
 
     #Writing the bytes to disk
     file_path.write_bytes(response.content)
 
     return str(file_path) #Returns the path as a disc
 
+def download_image(media_id, mime_type):
 
+    normalized_mime = mime_type.split(";", 1)[0].strip().lower()
+    
+    if normalized_mime not in ("image/jpeg", "image/png"):
+        raise RuntimeError("O formato não corresponde a de uma imagem")
 
-"""This function processes the audio download:
+    headers = {"Authorization":f"Bearer {ACCESS_TOKEN}"}
+    image_url = get_media_url(media_id)
+
+    response = httpx.get(image_url, headers=headers, timeout=30.0)
+    response.raise_for_status()
+
+    if not response.content:
+        raise RuntimeError("O conteúdo está vazio")
+
+    return response.content
+
+"""The two function below processes the image and audio download, respectively:
    - file_path for the path of the file;
    - mark_media_error if the download does not occur
    - mark_media_downloaded if the file downloaded, it will be store in the database
    - process_transcription for the file downloaded, it will transcribe the audio to text
 """
-def process_media_download(message_id, media_id, mime_type):
 
-    download_status = get_media_download_status(message_id)
+def process_image_download(message_id, media_id, mime_type): 
+
+    download_status = get_image_download_status(message_id)
+
+    if download_status == 'downloaded':
+        return
+
+    if download_status is None:
+        logger.error(f"Registro da imagem não encontrado para mensagem: {message_id}")
+        return
+
+    claimed = claim_image_download(message_id)
+    if not claimed:
+        return
+
+    try:
+        image_data = download_image(media_id, mime_type)
+
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+        logger.error(f"Falha do download da mensagem: {message_id} - {type(exc).__name__}")
+        if isinstance(exc, httpx.HTTPStatusError): 
+            logger.error(f"Status HTTP do download: {exc.response.status_code}")
+        mark_image_error(message_id)
+
+    else:
+        mark_image_downloaded(message_id, image_data)
+        logger.info(f"Download concluído para a mensagem: {message_id}")
+
+
+def process_audio_download(message_id, media_id, mime_type):
+
+    download_status = get_audio_download_status(message_id)
     normalized_mime = mime_type.split(";", 1)[0].strip().lower()
     is_audio = normalized_mime.startswith("audio/")
 
@@ -110,21 +162,21 @@ def process_media_download(message_id, media_id, mime_type):
         logger.error(f"Registro de mídia não encontrado para a mensagem: {message_id}")
         return
     
-    claimed = claim_media_download(message_id)
+    claimed = claim_audio_download(message_id)
     if not claimed:
         return
 
     try:
-        file_path = download_media(media_id, mime_type)
+        file_path = download_audio(media_id, mime_type)
 
     except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
         logger.error(f"Falha do download da mensagem: {message_id} - {type(exc).__name__}")
         if isinstance(exc, httpx.HTTPStatusError):
             logger.error(f"Status HTTP do download: {exc.response.status_code}")
-        mark_media_error(message_id)
+        mark_audio_error(message_id)
 
     else:
-        mark_media_downloaded(message_id, file_path)
+        mark_audio_downloaded(message_id, file_path)
         logger.info(f"Download concluído para a mensagem: {message_id}")
         if is_audio:
             process_transcription(message_id)

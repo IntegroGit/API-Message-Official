@@ -1,3 +1,5 @@
+.vscode
+
 # Segredos e configurações locais
 .env
 .env.*

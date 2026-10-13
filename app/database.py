@@ -81,16 +81,16 @@ def mark_image_error(message_id):
             cursor.execute(sql, (message_id,))
 
 #If the audio is downloaded, this function will be executed
-def mark_audio_downloaded(message_id, file_path):
+def mark_audio_downloaded(message_id, audio_data):
 
     sql = """UPDATE message_audio
-            SET file_path = %s, download_status = 'downloaded'
+            SET audio_data = %s, download_status = 'downloaded'
             WHERE message_id = %s 
             """
 
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql, (file_path, message_id))
+            cursor.execute(sql, (audio_data, message_id))
 
 #If the download fails, `download_status` will change to 'error'.
 def mark_audio_error(message_id):
@@ -139,6 +139,23 @@ def get_audio_download_status(message_id):
         return None
     
     return row[0]
+
+def get_audio_data(message_id):
+
+    sql = """SELECT audio_data, mime_type
+            FROM message_audio
+            WHERE message_id = %s 
+            """
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (message_id,))
+            row = cursor.fetchone()
+
+    if row is None:
+        return None
+
+    return row
 
 #This function prevents a single message from being executed twice.
 #The download only starts after this function return True
@@ -211,24 +228,6 @@ def claim_image_download(message_id):
             row = cursor.fetchone()
 
     return row is not None
-
-#This fuction return the file path 
-def get_audio_file_path(message_id):
-
-    sql = """SELECT file_path
-            FROM message_audio
-            WHERE message_id = %s
-            """
-
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(sql, (message_id,))
-            row = cursor.fetchone()
-
-    if row is None:
-        return None
-
-    return row[0]
 
 #Recording of the interpretation of the text
 def start_interpretation(message_id, source_text, model_name, prompt_version, schema_version):

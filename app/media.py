@@ -3,9 +3,7 @@
 """
 
 import os, httpx, logging
-from uuid import uuid4
 from dotenv import load_dotenv
-from pathlib import Path
 from app.transcribe import process_transcription
 from app.database import (mark_audio_downloaded, 
                           mark_audio_error, 
@@ -20,13 +18,10 @@ from app.database import (mark_audio_downloaded,
 load_dotenv()
 
 ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")
-STORAGE_PATH = os.getenv("STORAGE_PATH")
 GRAPH_VERSION = os.getenv("META_GRAPH_VERSION")
 
 if not ACCESS_TOKEN: 
     raise RuntimeError("META_ACCESS_TOKEN não configurado")
-if not STORAGE_PATH:
-    raise RuntimeError("STORAGE_PATH não configurado")
 if not GRAPH_VERSION:
     raise RuntimeError("META_GRAPH_VERSION não foi configurado")
 
@@ -59,9 +54,6 @@ def download_audio(media_id, mime_type):
     
     download_url = get_media_url(media_id)
 
-    #Defining the audio download path
-    storage_dir = Path(STORAGE_PATH)
-    storage_dir.mkdir(parents=True, exist_ok=True)
 
     base_mime_type = mime_type.split(";", 1)[0].strip().lower()
 
@@ -76,9 +68,6 @@ def download_audio(media_id, mime_type):
     if extension is None:
         raise RuntimeError(f"Tipo de áudio não suportado: {base_mime_type}")
 
-    #Generating a random identifier
-    filename = f"{uuid4().hex}{extension}"
-    file_path = storage_dir/filename
 
     headers = {"Authorization":f"Bearer {ACCESS_TOKEN}"}
 
@@ -88,10 +77,7 @@ def download_audio(media_id, mime_type):
     if not response.content:
         raise RuntimeError("O arquivo de áudio recebido está vazio")
 
-    #Writing the bytes to disk
-    file_path.write_bytes(response.content)
-
-    return str(file_path) #Returns the path as a disc
+    return response.content #Return the binary content
 
 def download_image(media_id, mime_type):
 
@@ -112,7 +98,6 @@ def download_image(media_id, mime_type):
     return response.content
 
 """The two function below processes the image and audio download, respectively:
-   - file_path for the path of the file;
    - mark_media_error if the download does not occur
    - mark_media_downloaded if the file downloaded, it will be store in the database
    - process_transcription for the file downloaded, it will transcribe the audio to text
@@ -167,7 +152,7 @@ def process_audio_download(message_id, media_id, mime_type):
         return
 
     try:
-        file_path = download_audio(media_id, mime_type)
+        audio_data = download_audio(media_id, mime_type)
 
     except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
         logger.error(f"Falha do download da mensagem: {message_id} - {type(exc).__name__}")
@@ -176,7 +161,7 @@ def process_audio_download(message_id, media_id, mime_type):
         mark_audio_error(message_id)
 
     else:
-        mark_audio_downloaded(message_id, file_path)
+        mark_audio_downloaded(message_id, audio_data)
         logger.info(f"Download concluído para a mensagem: {message_id}")
         if is_audio:
             process_transcription(message_id)

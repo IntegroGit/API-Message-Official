@@ -14,7 +14,7 @@ CREATE TABLE message_audio (
     message_id TEXT PRIMARY KEY,
     media_id TEXT NOT NULL,
     mime_type TEXT NOT NULL,
-    file_path TEXT,
+    audio_data BYTEA NULL,
     download_status TEXT NOT NULL DEFAULT 'pending' 
     CHECK(download_status IN ('pending', 'downloaded', 'downloading', 'error')),
     download_started_at TIMESTAMPTZ NULL,

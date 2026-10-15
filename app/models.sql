@@ -54,3 +54,13 @@ CREATE TABLE message_images (
     CONSTRAINT fk_message FOREIGN KEY (message_id)
     REFERENCES messages(message_id)
 );
+
+CREATE TABLE message_locations (
+    message_id TEXT PRIMARY KEY,
+    latitude DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90 AND 90),
+    longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180 AND 180),
+    name TEXT NULL,
+    address TEXT NULL,
+    CONSTRAINT fk_message FOREIGN KEY (message_id)
+    REFERENCES messages(message_id)
+);

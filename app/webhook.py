@@ -6,7 +6,7 @@ import os, hmac, hashlib, logging
 from json import JSONDecodeError
 from dotenv import load_dotenv
 from typing import Annotated
-from app.database import save_message, save_audio_message, save_image_message
+from app.database import save_message, save_audio_message, save_image_message, save_location_message
 from app.interpret import run_interpretation_background
 from app.media import process_audio_download, process_image_download
 from datetime import timezone, datetime
@@ -104,7 +104,7 @@ async def receive_webhook(request: Request, background_task: BackgroundTasks):
                 message_type = message.get("type") #Getting the type of the JSON 
                 message_timestamp = message.get("timestamp") #Getting the timestamp of the JSON 
 
-                if message_type not in ("text", "audio", "image"):
+                if message_type not in ("text", "audio", "image", "location"):
                     continue
 
                 #Checking if the element id is a string
@@ -193,5 +193,39 @@ async def receive_webhook(request: Request, background_task: BackgroundTasks):
                     await run_in_threadpool(save_image_message, message_id, sender, sent_at, media_id, mime_type, caption, payload)
 
                     background_task.add_task(process_image_download, message_id, media_id, mime_type)
-                
+
+                elif message_type == "location":
+
+                    location_data = message.get("location")
+
+                    if not isinstance(location_data, dict):
+                        raise HTTPException(status_code=400, detail="O campo deve ser um objeto JSON")
+
+                    latitude = location_data.get("latitude")
+                    longitude = location_data.get("longitude")
+
+                    for field_name, value in (("latitude", latitude), ("longitude", longitude)):
+                        if isinstance (value, bool) or not isinstance(value, (int, float)):
+                            raise HTTPException(status_code=400, detail=f"O campo {field_name} deve ser um números")
+
+                    if not (-90 <= latitude <= 90):
+                        raise HTTPException(status_code=400, detail="A coordenada da latitude está incorreta")
+
+                    if not (-180 <= longitude <= 180):
+                        raise HTTPException(status_code=400, detail="A coordenada da longitude está incorreta")
+
+                    name = location_data.get("name")
+
+                    if name is not None:
+                        if not isinstance(name, str):
+                            raise HTTPException(status_code=400, detail="o campo name deve ser uma string")
+
+                    address = location_data.get("address")
+
+                    if address is not None:
+                        if not isinstance(address, str):
+                            raise HTTPException(status_code=400, detail="O campo address deve ser uma string")
+
+                    await run_in_threadpool(save_location_message, message_id, sender, sent_at, latitude, longitude, name, address, payload)
+            
     return PlainTextResponse("EVENT_RECEIVED", status_code=200)

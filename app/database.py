@@ -58,6 +58,19 @@ def save_image_message(message_id, sender, sent_at, media_id, mime_type, caption
             cursor.execute(sql_messages, (message_id, sender, sent_at, 'image', caption, Jsonb(payload)))
             cursor.execute(sql_media, (message_id, media_id, mime_type))
 
+def save_location_message(message_id, sender, sent_at, latitude, longitude, name, address, payload):
+
+    sql_messages = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
+                VALUES (%s, %s, %s, %s , %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+
+    sql_location = """INSERT INTO message_locations (message_id, latitude, longitude, name, address)
+                        VALUES (%s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql_messages, (message_id, sender, sent_at, 'location', None, Jsonb(payload)))
+            cursor.execute(sql_location, (message_id, latitude, longitude, name, address))
+
 def mark_image_downloaded(message_id, image_data):
 
     sql = """UPDATE message_images 

@@ -1,13 +1,26 @@
 -- Criação das tabelas do Agro Zap em PostgreSQL + PostGIS.
 
+CREATE TABLE field_sessions (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    sender TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    last_message_at TIMESTAMPTZ NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open', 'closed')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE messages (
     message_id TEXT PRIMARY KEY,
+    session_id BIGINT NULL,
     sender TEXT NOT NULL,
     sent_at TIMESTAMPTZ NOT NULL,
     received_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     message_type TEXT NOT NULL,
     text_body TEXT NULL,
-    payload JSONB NOT NULL
+    payload JSONB NOT NULL,
+    CONSTRAINT fk_message FOREIGN KEY (session_id)
+    REFERENCES field_sessions(id)
 );
 
 CREATE TABLE message_audio (
@@ -64,3 +77,4 @@ CREATE TABLE message_locations (
     CONSTRAINT fk_message FOREIGN KEY (message_id)
     REFERENCES messages(message_id)
 );
+

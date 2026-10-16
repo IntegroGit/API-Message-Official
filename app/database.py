@@ -2,6 +2,7 @@
 import os, psycopg
 from dotenv import load_dotenv
 from psycopg.types.json import Jsonb
+from app.grouping import get_or_create_session
 
 load_dotenv()
 
@@ -25,30 +26,56 @@ def get_connection():
 def save_message(message_id, sender, sent_at, message_type, text_body, payload):
 
     sql = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
-                VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+                VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING
+                RETURNING message_id"""
 
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(sql, (message_id, sender, sent_at, message_type, text_body, Jsonb(payload)))
+            row = cursor.fetchone()
+
+            if row is None:
+                return
+
+            session_id = get_or_create_session(conn, sender, sent_at)
+
+            cursor.execute("""UPDATE messages
+                            SET session_id = %s
+                            WHERE message_id = %s
+                            """, (session_id, message_id))
 
 #Save the message and audio into database
 def save_audio_message(message_id, sender, sent_at, media_id, mime_type, payload):
 
-    sql_message = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
-                        VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+    sql_messages = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
+                        VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING
+                        RETURNING message_id"""
 
     sql_media = """INSERT INTO message_audio (message_id, media_id, mime_type)
                     VALUES (%s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
 
     with get_connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(sql_message, (message_id, sender, sent_at, "audio", None, Jsonb(payload)))
+            cursor.execute(sql_messages, (message_id, sender, sent_at, "audio", None, Jsonb(payload)))
+            row = cursor.fetchone()
+
+            if row is None:
+                return
+
+            session_id = get_or_create_session(conn, sender, sent_at)
+
+            cursor.execute("""UPDATE messages
+                            SET session_id = %s
+                            WHERE message_id = %s
+                            """, (session_id, message_id))
+            
             cursor.execute(sql_media, (message_id, media_id, mime_type))
 
 def save_image_message(message_id, sender, sent_at, media_id, mime_type, caption, payload):
 
     sql_messages = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
-                        VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+                        VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING
+                        RETURNING message_id"""
 
     sql_media = """INSERT INTO message_images (message_id, media_id, mime_type)
                     VALUES (%s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
@@ -56,12 +83,25 @@ def save_image_message(message_id, sender, sent_at, media_id, mime_type, caption
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(sql_messages, (message_id, sender, sent_at, 'image', caption, Jsonb(payload)))
+            row = cursor.fetchone()
+
+            if row is None:
+                return
+
+            session_id = get_or_create_session(conn, sender, sent_at)
+
+            cursor.execute("""UPDATE messages
+                            SET session_id = %s
+                            WHERE message_id = %s
+                            """, (session_id, message_id))
+
             cursor.execute(sql_media, (message_id, media_id, mime_type))
 
 def save_location_message(message_id, sender, sent_at, latitude, longitude, name, address, payload):
 
     sql_messages = """INSERT INTO messages (message_id, sender, sent_at, message_type, text_body, payload)
-                VALUES (%s, %s, %s, %s , %s, %s) ON CONFLICT (message_id) DO NOTHING"""
+                        VALUES (%s, %s, %s, %s , %s, %s) ON CONFLICT (message_id) DO NOTHING
+                        RETURNING message_id"""
 
     sql_location = """INSERT INTO message_locations (message_id, latitude, longitude, name, address)
                         VALUES (%s, %s, %s, %s, %s) ON CONFLICT (message_id) DO NOTHING"""
@@ -69,6 +109,18 @@ def save_location_message(message_id, sender, sent_at, latitude, longitude, name
     with get_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(sql_messages, (message_id, sender, sent_at, 'location', None, Jsonb(payload)))
+            row = cursor.fetchone()
+
+            if row is None:
+                return
+
+            session_id = get_or_create_session(conn, sender, sent_at)
+            
+            cursor.execute("""UPDATE messages
+                            SET session_id = %s
+                            WHERE message_id = %s
+                            """, (session_id, message_id))
+
             cursor.execute(sql_location, (message_id, latitude, longitude, name, address))
 
 def mark_image_downloaded(message_id, image_data):

@@ -48,3 +48,5 @@ def get_or_create_session(conn, sender, sent_at):
                         WHERE id = %s""", (sent_at, sent_at, session_id))
 
         return session_id
+
+    #Testando a transferência

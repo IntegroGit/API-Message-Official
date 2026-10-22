@@ -78,3 +78,17 @@ CREATE TABLE message_locations (
     REFERENCES messages(message_id)
 );
 
+CREATE TABLE session_reports (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    session_id BIGINT NOT NULL,
+    version INTEGER NOT NULL CHECK (version > 0),
+    template_version TEXT NOT NULL,
+    html_content TEXT NOT NULL,
+    pdf_data BYTEA NOT NULL,
+    source_manifest JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_session FOREIGN key (session_id)
+    REFERENCES field_sessions(id),
+
+    UNIQUE (session_id, version)
+);

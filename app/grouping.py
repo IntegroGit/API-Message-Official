@@ -49,4 +49,34 @@ def get_or_create_session(conn, sender, sent_at):
 
         return session_id
 
-    #Testando a transferência
+def close_inactive_sessions(conn, now):
+
+    cutoff = now - timedelta(minutes=15)
+
+    closed_session_ids = []
+
+    with conn.cursor() as cursor:
+        cursor.execute("""SELECT id, sender
+                        FROM field_sessions
+                        WHERE status = 'open' AND last_message_at <= %s
+                        ORDER BY sender, id
+                        """, (cutoff,))
+
+        sessions = cursor.fetchall()
+
+        for session_id, sender in sessions:
+        
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (sender,))
+
+            cursor.execute("""UPDATE field_sessions
+                            SET status = 'closed'
+                            WHERE id = %s AND status = 'open' AND last_message_at <= %s
+                            RETURNING id 
+                            """, (session_id, cutoff))
+            
+            row = cursor.fetchone()
+
+            if row is not None:
+                closed_session_ids.append(row[0])
+
+    return closed_session_ids

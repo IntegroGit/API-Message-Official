@@ -123,6 +123,57 @@ def save_location_message(message_id, sender, sent_at, latitude, longitude, name
 
             cursor.execute(sql_location, (message_id, latitude, longitude, name, address))
 
+def save_session_report(conn, session_id, report_html, report_pdf, source_manifest, template_version):
+
+    sql_status = """SELECT status
+            FROM field_sessions
+            WHERE id = %s
+            FOR UPDATE
+            """
+
+    sql_report = """SELECT id, version, template_version, source_manifest
+                    FROM session_reports
+                    WHERE session_id = %s
+                    ORDER BY version DESC
+                    LIMIT 1
+                    """
+    
+    sql_vesion = """SELECT COALESCE (MAX(version), 0) + 1
+                    FROM session_reports
+                    WHERE session_id = %s
+                    """
+
+    sql = """ INSERT INTO session_reports (session_id, version, template_version, html_content, pdf_data, source_manifest)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, version
+            """
+    
+    with conn.cursor() as cursor:
+        cursor.execute(sql_status, (session_id,))
+        row = cursor.fetchone()
+
+        if row is None:
+            raise ValueError("Registro da sessão não encotrado")
+
+        if row[0] != 'closed':
+            raise ValueError("Sessão ainda não foi fechada")
+
+        cursor.execute(sql_report, (session_id,))
+        row = cursor.fetchone()
+
+        if row and row[2] == template_version and row[3] == source_manifest:
+            return row[0], row[1]
+
+        cursor.execute(sql_vesion, (session_id,))
+        row = cursor.fetchone()
+        next_version = row[0]
+
+        cursor.execute(sql, (session_id, next_version, template_version, report_html, report_pdf, Jsonb(source_manifest)))
+        row = cursor.fetchone()
+
+    return row
+        
+
 def mark_image_downloaded(message_id, image_data):
 
     sql = """UPDATE message_images 
@@ -367,3 +418,22 @@ def mark_interpretation_error(interpretation_id, error_message):
             row = cursor.fetchone()
 
     return row is not None
+
+def get_sessions_without_report():
+
+    sql = """SELECT fs.id
+            FROM field_sessions fs
+            WHERE status = 'closed' AND NOT EXISTS (
+                SELECT 1
+                FROM session_reports sr
+                WHERE sr.session_id = fs.id
+                )
+            ORDER BY last_message_at, id
+            """
+
+    with get_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+
+    return [row[0] for row in rows]

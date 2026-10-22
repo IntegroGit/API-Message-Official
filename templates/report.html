@@ -3,10 +3,269 @@
 <head>
   <meta charset="utf-8">
   <title>Agro Zap — Relatório</title>
+  <style>
+    body{
+      font-family: Arial, sans-serif; 
+      font-size: 11pt; 
+      line-height: 1.5; 
+      color: #222;
+    }
+    p{
+      margin: 6px 0; 
+      overflow-wrap: anywhere;
+    }
+    .report-section, .report-annex {
+      margin-top: 20px;
+    }
+    .draft-notice {
+      background-color: #fff3cd; 
+      border: 1px solid #d6b656; 
+      padding: 10px; 
+      font-weight: bold;
+    }
+    @page {
+      size: A4; 
+      margin: 20mm;
+    }
+    h1, h2, h3, h4, h5 {
+      break-after: avoid;
+    }
+    figure {
+      margin: 12px 0; 
+      break-inside: avoid;
+    }
+    figure img {
+      display: block; 
+      max-width: 100%; 
+      max-height: 100mm; 
+      height: auto;
+    }
+    figcaption{
+      font-size: 9pt; 
+      color: #555
+    }
+    @media print{
+      body {
+        margin: 0;
+      }
+      .report-annex{
+        break-before: page;
+      }
+    }
+    .report-annex article{
+      break-inside: avoid;
+    }
+  </style>
 </head>
+
 <body>
-  <p>Rascunho automático — confira antes de encaminhar</p>
-  <h1>Relatório de ocorrência</h1>
-  <!-- Estrutura inicial: preencher com os dados da ocorrência na etapa 7. -->
+  <header>
+    <p class="draft-notice">Rascunho automático — confira antes de encaminhar</p>
+    <h1>Relatório de ocorrência</h1>
+    <p>Sessão: {{ session.id }}</p>
+    <p>Remetente: {{ session.sender }}</p>
+    <p>Início: {{ session.started_at | report_datetime  }}</p>
+    <p>Última mensagem: {{ session.last_message_at | report_datetime  }}</p>
+    <p>Estado: {{ session.status }}</p>
+  </header>
+
+  <main>
+    <section class="report-section">
+      <!--Mensagem-->
+      <h2>Relato agrícola</h2>
+      {% for message in messages %}
+        {% if message.interpretation %}
+          {% for record in message.interpretation.result.records %}
+          <article>
+            {% if record.farm %}
+              <p>Fazenda: {{ record.farm.value }}</p>
+            {% endif %}
+            {% if record.field %}
+              <p>Talhão: {{ record.field.value }}</p>
+            {% endif %}
+            {% if record.crop %}
+              <p>Cultura: {{ record.crop.value }}</p>
+            {% endif %}
+            {% if record.development_stage %}
+              <p>Estágio de desenvolvimento: {{ record.development_stage.value }}</p>
+            {% endif %}
+            {% if record.observation %}
+              <p>Observação relatada: {{ record.observation.value }}</p>
+            {% endif %}
+            {% if record.hypothesis %}
+              <p>Hipótese relatada: {{ record.hypothesis.value }}</p>
+            {% endif %}
+            {% if record.recommendation %}
+              <p>Recomendação relatada: {{ record.recommendation.value }}</p>
+            {% endif %}
+            {% if record.products %}
+              <ul>
+                {% for product in record.products %}
+                <li>
+                  <p>Produto: {{ product.product }}</p>
+
+                  {% if product.dose %}
+                    <p>Dose: {{ product.dose }}</p>
+                  {% else %}
+                    <p>Dose: Não informada</p>
+                  {% endif %}
+
+                </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            <p>Origem: {{ message.message_type }} e {{ message.sent_at | report_datetime }}</p>
+          </article>
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+    </section>
+    <section class="report-section">
+
+      <!--Imagem-->
+      <h2>Registro fotográfico</h2>
+      {% for message in messages %}
+        {% if message.message_type == 'image' %}
+        <figure>
+          <img src="{{ message.image.image_converted | image_data_uri(message.image.mime_type) }}" 
+              alt="Foto enviada na visita" style="max-width: 100%; height: auto;">
+          <figcaption>
+            {% if message.text_body %}
+              <p>Legenda: {{ message.text_body }}</p> 
+            {% endif %}
+            <p>Enviada em: {{ message.sent_at | report_datetime }}</p>
+          </figcaption>
+        </figure>
+        {% endif %}
+      {% endfor %}
+   </section>
+    <section class="report-section">
+      
+      <!--Localização-->
+      <h2>Localização da visita</h2>
+      {% for message in messages %}
+        {% if message.message_type == 'location' %}
+          <article>
+            <p>Latitude: {{ message.location.latitude }}</p>
+          <p>Longitude: {{ message.location.longitude }}</p>
+    
+          {% if message.location.name %}
+          <p>Local: {{ message.location.name }}</p>
+          {% endif %}
+
+          {% if message.location.address %}
+          <p>Endereço: {{ message.location.address }}</p>
+          {% endif %}
+          <p>Enviada em: {{ message.sent_at | report_datetime }}</p>
+          </article>
+        {% endif %}
+      {% endfor %}
+    </section>
+    <section class="report-annex">
+      <h2>Anexo de conferência</h2>
+
+
+    {% for message in messages %}
+
+    <article>
+      <h3>Mensagem: {{ loop.index }}</h3>
+      <p>Tipo: {{ message.message_type }}</p>
+      <p>Enviada em: {{ message.sent_at | report_datetime }}</p>
+      <p>Identificador: {{ message.message_id }}</p>
+
+      {% if message.message_type == 'text' %}
+      <p>Texto original: {{ message.text_body }}</p>
+
+      {% elif message.message_type == 'audio' %}
+      <p>Transcrição do áudio: {{ message.audio.transcription_text }}</p>
+
+      {% elif message.message_type == 'location' %}
+
+      <p>Localização apresentada na seção <strong>Localização da visita</strong>.</p>
+
+      {% elif message.message_type == 'image' %}
+
+        <p>Foto apresentada na seção <strong>Registro fotográfico</strong></p>
+
+        {% if message.text_body %}
+        <p>Legenda: {{ message.text_body }}</p>
+        {% endif %}
+
+      {% endif %}
+
+      {% if message.interpretation %}
+      <h4>Informações agrícolas extraídas - conferir</h4>
+
+        {% for record in message.interpretation.result.records %}
+        <section>
+          <h5>Registro: {{ loop.index }}</h5>
+
+          {% if record.farm %}
+          <p>Fazenda: {{ record.farm.value }}</p>
+          <p>Evidência original: {{ record.farm.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.field %}
+          <p>Talhão: {{ record.field.value }}</p>
+          <p>Evidência original: {{ record.field.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.crop %}
+          <p>Cultura: {{ record.crop.value }}</p>
+          <p>Evidência original: {{ record.crop.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.development_stage %}
+          <p>Estágio de desenvolvimento: {{ record.development_stage.value }}</p>
+          <p>Evidência original: {{ record.development_stage.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.observation %}
+          <p>Observação relatada: {{ record.observation.value }}</p>
+          <p>Evidência original: {{ record.observation.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.hypothesis %}
+          <p>Hipótese relatada: {{ record.hypothesis.value }}</p>
+          <p>Evidência original: {{ record.hypothesis.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.recommendation %}
+          <p>Recomendação relatada: {{ record.recommendation.value }}</p>
+          <p>Evidência original: {{ record.recommendation.source_excerpt }}</p>
+          {% endif %}
+
+          {% if record.products %}
+          <h4>Produtos mencionados</h4>
+          <ul>
+
+            {% for product in record.products %}
+            <li>
+              <p>Nome: {{ product.product }}</p>
+
+              {% if not product.dose %}
+              <p>Dose: Não informada</p>
+              {% else %}
+              <p>Dose: {{ product.dose }}</p>
+              {% endif %}
+
+              <p>Evidência original: {{ product.source_excerpt }}</p>
+            </li>
+            {% endfor %}
+
+          </ul>
+          {% endif %}
+
+        </section>
+        {% endfor %}
+
+      {% endif %}
+    </article>
+
+    {% endfor %}
+
+    </section>
+  </main>
+
 </body>
 </html>

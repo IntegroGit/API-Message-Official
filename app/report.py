@@ -21,7 +21,7 @@ def get_session_report_data(conn, session_id):
 
     with conn.cursor() as cursor:
         cursor.execute("""SELECT id, sender, started_at, last_message_at, status
-                        FROM field_sessions
+                        FROM agrozap_field_sessions
                         WHERE id = %s
                         """, (session_id,))
 
@@ -36,7 +36,7 @@ def get_session_report_data(conn, session_id):
             raise ValueError("A sessão ainda está aberta")
 
         cursor.execute("""SELECT message_id, message_type, sent_at, received_at, text_body
-                        FROM messages
+                        FROM agrozap_messages
                         WHERE session_id = %s
                         ORDER BY sent_at, received_at, message_id
                         """, (stored_session_id,))
@@ -77,7 +77,7 @@ def get_session_report_data(conn, session_id):
             if message_type == 'audio':
 
                 cursor.execute("""SELECT mime_type, download_status, transcription_status, transcription_text
-                                FROM message_audio
+                                FROM agrozap_message_audio
                                 WHERE message_id = %s
                                 """, (message_id,))
 
@@ -107,7 +107,7 @@ def get_session_report_data(conn, session_id):
             elif message_type == 'image':
               
                 cursor.execute("""SELECT mime_type, download_status, image_converted
-                                FROM message_images
+                                FROM agrozap_message_images
                                 WHERE message_id = %s
                                 """, (message_id,))
 
@@ -136,7 +136,7 @@ def get_session_report_data(conn, session_id):
             elif message_type == 'location':
 
                 cursor.execute("""SELECT latitude, longitude, name, address
-                                FROM message_locations
+                                FROM agrozap_message_locations
                                 WHERE message_id = %s
                                 """, (message_id,))
 
@@ -165,7 +165,7 @@ def get_session_report_data(conn, session_id):
                 if isinstance(source_text, str) and source_text.strip():
 
                     cursor.execute("""SELECT id, status, result, model_name, prompt_version, schema_version
-                                    FROM message_interpretations
+                                    FROM agrozap_message_interpretations
                                     WHERE message_id = %s AND source_text = %s
                                     ORDER BY id DESC
                                     LIMIT 1

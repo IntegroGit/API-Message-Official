@@ -3,7 +3,11 @@
 import os, httpx, logging, re, json
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from app.database import start_interpretation, mark_interpretation_completed, mark_interpretation_error
+from app.retry_policy import MAX_INTERPRETATION_ATTEMPTS, INTERPRETATION_RETRY_DELAY_SECONDS
+from app.database import (start_interpretation, 
+                          mark_interpretation_completed, 
+                          mark_interpretation_error,
+                          interpretation_task_lock)
 
 load_dotenv()
 
@@ -324,24 +328,29 @@ def process_interpretation(message_id, text):
     if not model_name:
         raise RuntimeError("O campo model não pode estar vazio")
 
-    interpretation_id = start_interpretation(message_id, text, model_name, PROMPT_VERSION, SCHEMA_VERSION)
-
-    if interpretation_id is None:
-        return None
-
-    try:
-        interpretation = interpret_text(text)
-
-    except Exception as exc:
-        mark_interpretation_error(interpretation_id, str(exc))
-        raise 
+    with interpretation_task_lock(message_id) as acquire:
+        
+        if not acquire:
+            return
     
-    else: 
-        result = mark_interpretation_completed(interpretation_id, interpretation.model_dump())
-        if not result:
-            raise RuntimeError("A tentativa não estava mais em processamento")
+        interpretation_id = start_interpretation(message_id, text, model_name, PROMPT_VERSION, SCHEMA_VERSION, MAX_INTERPRETATION_ATTEMPTS, INTERPRETATION_RETRY_DELAY_SECONDS)
 
-    return interpretation 
+        if interpretation_id is None:
+            return None
+
+        try:
+            interpretation = interpret_text(text)
+
+        except Exception as exc:
+            mark_interpretation_error(interpretation_id, str(exc))
+            raise 
+    
+        else: 
+            result = mark_interpretation_completed(interpretation_id, interpretation.model_dump())
+            if not result:
+                raise RuntimeError("A tentativa não estava mais em processamento")
+
+        return interpretation 
 
 def run_interpretation_background(message_id, text):
     

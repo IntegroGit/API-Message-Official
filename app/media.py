@@ -5,6 +5,7 @@
 import os, httpx, logging
 from dotenv import load_dotenv
 from app.transcribe import process_transcription
+from app.retry_policy import MAX_DOWNLOAD_ATTEMPTS, DOWNLOAD_RETRY_DELAY_SECONDS
 from app.database import (mark_audio_downloaded, 
                           mark_audio_error, 
                           get_audio_download_status, 
@@ -12,7 +13,7 @@ from app.database import (mark_audio_downloaded,
                           get_image_download_status, 
                           claim_image_download, 
                           mark_image_downloaded, 
-                          mark_image_error)
+                          mark_image_error, download_task_lock)
 
 
 load_dotenv()
@@ -97,6 +98,30 @@ def download_image(media_id, mime_type):
 
     return response.content
 
+
+def log_download_http_error(exc, message_id): 
+
+    logger.error(f"Status HTTP do download da mensagem {message_id}: {exc.response.status_code}")
+    
+    try:
+        error_body = exc.response.json()
+
+    except ValueError:
+        logger.warning(f"Resposta de erro sem JSON para a mensagem {message_id}")
+        return
+
+    else:
+        if not isinstance(error_body, dict) or not isinstance(error_body.get('error'), dict):
+            logger.warning(f"Resposta sem detalhes estruturados do erro para a mensagem {message_id}")
+            return
+        
+    error_info = error_body['error']
+    logger.error(f"Erro na API para a mensagem {message_id}:"
+                 f"code = {error_info.get('code')}, "
+                 f"error_subcode = {error_info.get('error_subcode')}, "
+                 f"message = {error_info.get('message')}")
+                                                     
+
 """The two function below processes the image and audio download, respectively:
    - mark_media_error if the download does not occur
    - mark_media_downloaded if the file downloaded, it will be store in the database
@@ -104,64 +129,104 @@ def download_image(media_id, mime_type):
 """
 
 def process_image_download(message_id, media_id, mime_type): 
+    
+    with download_task_lock(message_id) as acquired:
+        
+        if acquired is False:
+            return
 
-    download_status = get_image_download_status(message_id)
+        download_status = get_image_download_status(message_id)
 
-    if download_status == 'downloaded':
-        return
+        if download_status == 'downloaded':
+            return
 
-    if download_status is None:
-        logger.error(f"Registro da imagem não encontrado para mensagem: {message_id}")
-        return
+        if download_status is None:
+            logger.error(f"Registro da imagem não encontrado para mensagem: {message_id}")
+            return
 
-    claimed = claim_image_download(message_id)
-    if not claimed:
-        return
+        claim_token = claim_image_download(message_id, MAX_DOWNLOAD_ATTEMPTS)
+    
+        if claim_token is None:
+            return
 
-    try:
-        image_data = download_image(media_id, mime_type)
+        try:
+            image_data = download_image(media_id, mime_type)
 
-    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
-        logger.error(f"Falha do download da mensagem: {message_id} - {type(exc).__name__}")
-        if isinstance(exc, httpx.HTTPStatusError): 
-            logger.error(f"Status HTTP do download: {exc.response.status_code}")
-        mark_image_error(message_id)
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            logger.error(f"Falha do download da mensagem: {message_id} - {type(exc).__name__}")
+        
+            if isinstance(exc, httpx.HTTPStatusError): 
+                log_download_http_error(exc, message_id)
+            
+            mark_img_e = mark_image_error(message_id, DOWNLOAD_RETRY_DELAY_SECONDS, claim_token)
+        
+            if mark_img_e is False:
+                logger.warning(f"A reserva já não pertence àquela tentativa em {message_id}") 
 
-    else:
-        mark_image_downloaded(message_id, image_data)
-        logger.info(f"Download concluído para a mensagem: {message_id}")
+        else:
+            mark_img_d = mark_image_downloaded(message_id, image_data, claim_token)
+        
+            if mark_img_d is True:
+                logger.info(f"Download concluído para a mensagem: {message_id}")
+        
+            else:
+                logger.warning(f"A reserva já não pertence àquela tentativa {message_id}") 
+
 
 
 def process_audio_download(message_id, media_id, mime_type):
 
-    download_status = get_audio_download_status(message_id)
     normalized_mime = mime_type.split(";", 1)[0].strip().lower()
     is_audio = normalized_mime.startswith("audio/")
-
-    if download_status == 'downloaded':
-        if is_audio:
-            process_transcription(message_id)
-        return 
-
-    if download_status is None:
-        logger.error(f"Registro de mídia não encontrado para a mensagem: {message_id}")
-        return
+    should_transcribe = False
     
-    claimed = claim_audio_download(message_id)
-    if not claimed:
-        return
+    with download_task_lock(message_id) as acquired:
+        
+        if acquired is False:
+            return
+        
+        download_status = get_audio_download_status(message_id)
+            
 
-    try:
-        audio_data = download_audio(media_id, mime_type)
+        if download_status is None:
+            logger.error(f"Registro de mídia não encontrado para a mensagem: {message_id}")
+            return
+        
+        elif download_status == 'downloaded':
+            should_transcribe = is_audio
+            
+        else: 
+    
+            claim_token = claim_audio_download(message_id, MAX_DOWNLOAD_ATTEMPTS)
+            if not claim_token:
+                return
 
-    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
-        logger.error(f"Falha do download da mensagem: {message_id} - {type(exc).__name__}")
-        if isinstance(exc, httpx.HTTPStatusError):
-            logger.error(f"Status HTTP do download: {exc.response.status_code}")
-        mark_audio_error(message_id)
+            try:
+                audio_data = download_audio(media_id, mime_type)
 
-    else:
-        mark_audio_downloaded(message_id, audio_data)
-        logger.info(f"Download concluído para a mensagem: {message_id}")
-        if is_audio:
-            process_transcription(message_id)
+            except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+                logger.error(f"Falha no download do áudio {message_id}: {type(exc).__name__}")  
+        
+                if isinstance(exc, httpx.HTTPStatusError):
+                    log_download_http_error(exc, message_id)
+              
+                mark_aud_e = mark_audio_error(message_id, DOWNLOAD_RETRY_DELAY_SECONDS, claim_token)
+        
+                if mark_aud_e is False:
+                    logger.warning(f"A reserva já não pertence àquela tentativa em {message_id}")
+
+            else:
+                mark_aud_d = mark_audio_downloaded(message_id, audio_data, claim_token)
+        
+                if mark_aud_d is True:
+                    logger.info(f"Download concluído para a mensagem: {message_id}")
+            
+                    should_transcribe = is_audio
+            
+                else:
+                    logger.warning(f"A reserva já não pertence àquela tentativa {message_id}")
+                    
+    if should_transcribe is True:
+        
+        process_transcription(message_id)
+            
